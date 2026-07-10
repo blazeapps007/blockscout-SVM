@@ -31,6 +31,10 @@ services:
       dockerfile: ./docker/Dockerfile
       args:
         RELEASE_VERSION: 11.2.2
+    # local fork build — must not be clobbered by upstream pulls
+    # (services/backend.yml sets ghcr.io image + pull_policy: always)
+    image: blockscout-svm:11.2.2
+    pull_policy: build
     links:
       - db:database
     environment:
@@ -50,6 +54,8 @@ services:
       dockerfile: ./docker/Dockerfile
       args:
         RELEASE_VERSION: 11.2.2
+    image: blockscout-svm:11.2.2
+    pull_policy: build
 
   visualizer:
     extends:
