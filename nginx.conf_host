@@ -1,0 +1,122 @@
+proxy_cache_path /www/wwwroot/evmscan.steemscanner.com/proxy_cache_dir levels=1:2 keys_zone=evmscan_steemscanner_com_cache:20m inactive=1d max_size=5g;
+server {
+    listen 80;
+    listen [::]:80;
+    server_name evmscan.steemscanner.com;
+    index index.php index.html index.htm default.php default.htm default.html;
+    root /www/wwwroot/evmscan.steemscanner.com;
+
+    #CERT-APPLY-CHECK--START
+    # Configuration related to file verification for SSL certificate application - Do not delete
+    include /www/server/panel/vhost/nginx/well-known/evmscan.steemscanner.com.conf;
+    #CERT-APPLY-CHECK--END
+
+    #SSL-START SSL related configuration, do NOT delete or modify the next line of commented-out 404 rules
+    #error_page 404/404.html;
+    #SSL-END
+    #REDIRECT START
+
+    #REDIRECT END
+
+    #ERROR-PAGE-START  Error page configuration, allowed to be commented, deleted or modified
+    #error_page 404 /404.html;
+    #error_page 502 /502.html;
+    #ERROR-PAGE-END
+
+    #PHP-INFO-START  PHP reference configuration, can be annotated or modified
+
+    include enable-php-00.conf;
+    #PHP-INFO-END
+
+    #IP-RESTRICT-START Restrict access to IP configuration, IP blacklist and whitelist
+
+    #IP-RESTRICT-END
+
+    #BASICAUTH START
+
+    #BASICAUTH END
+
+    #SUB_FILTER START
+
+    #SUB_FILTER END
+
+    #GZIP START
+
+    #GZIP END
+
+    #GLOBAL-CACHE START
+
+    #GLOBAL-CACHE END
+
+    #WEBSOCKET-SUPPORT START
+    proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+    #WEBSOCKET-SUPPORT END
+
+    #PROXY-CONF-START
+    # Blockscout stats microservice (charts) — trailing slash on proxy_pass
+    # strips the /stats-service prefix before forwarding
+    location ^~ /stats-service/ {
+      proxy_pass http://127.0.0.1:8086/;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Blockscout sol2uml visualizer microservice (contract diagrams)
+    location ^~ /visualizer-service/ {
+      proxy_pass http://127.0.0.1:8081/;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Blockscout frontend + API (docker-compose proxy container on host port 8085)
+    location ^~ / {
+      proxy_pass http://127.0.0.1:8085;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Real-Port $remote_port;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header REMOTE-HOST $remote_addr;
+
+      proxy_connect_timeout 60s;
+      proxy_send_timeout 600s;
+      proxy_read_timeout 600s;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+    }
+    #PROXY-CONF-END
+
+    #SERVER-BLOCK START
+
+    #SERVER-BLOCK END
+
+    #Prohibited access to files or directories
+    location ~ ^/(\.user.ini|\.htaccess|\.git|\.env|\.svn|\.project|LICENSE|README.md)
+    {
+        return 404;
+    }
+
+    #One click application for SSL certificate verification directory related settings
+    location /.well-known{
+        allow all;
+        root /www/wwwroot/evmscan.steemscanner.com;
+    }
+
+    #Prohibit placing sensitive files in the certificate verification directory
+    if ( $uri ~ "^/\.well-known/.*\.(php|jsp|py|js|css|lua|ts|go|zip|tar\.gz|rar|7z|sql|bak)$" ) {
+        return 403;
+    }
+
+    #LOG START
+    access_log  /www/wwwlogs/evmscan.steemscanner.com.log;
+    error_log  /www/wwwlogs/evmscan.steemscanner.com.error.log;
+
+    #LOG END
+}
