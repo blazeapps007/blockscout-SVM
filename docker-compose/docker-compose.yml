@@ -55,9 +55,10 @@ services:
     links:
       - db:database
     environment:
-        ETHEREUM_JSONRPC_HTTP_URL: http://host.docker.internal:8545/
-        ETHEREUM_JSONRPC_TRACE_URL: http://host.docker.internal:8545/
-        ETHEREUM_JSONRPC_WS_URL: ws://host.docker.internal:8546/
+        # node runs on a separate server; WS (8546) binds loopback there and
+        # is unreachable remotely, so no ETHEREUM_JSONRPC_WS_URL — HTTP polling
+        ETHEREUM_JSONRPC_HTTP_URL: https://evm.steemscanner.com/
+        ETHEREUM_JSONRPC_TRACE_URL: https://evm.steemscanner.com/
         CHAIN_ID: '8163'
 
   nft_media_handler:
