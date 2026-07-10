@@ -19,10 +19,27 @@ services:
       file: ./services/db.yml
       service: db
 
+  # one-shot: the backend image runs as UID 10001 and needs to own its
+  # bind-mounted dirs (same pattern as db-init)
+  backend-init:
+    image: postgres:17
+    volumes:
+      - ./logs/:/logs/
+      - ./dets/:/dets/
+    entrypoint:
+      - sh
+      - -c
+      - |
+        chown -R 10001:10001 /logs /dets
+
   backend:
     depends_on:
-      - db
-      - redis-db
+      db:
+        condition: service_started
+      redis-db:
+        condition: service_started
+      backend-init:
+        condition: service_completed_successfully
     extends:
       file: ./services/backend.yml
       service: backend
