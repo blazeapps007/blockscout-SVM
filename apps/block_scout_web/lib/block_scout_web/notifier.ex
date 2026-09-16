@@ -89,46 +89,60 @@ defmodule BlockScoutWeb.Notifier do
       @chain_type_transaction_associations []
   end
 
-  @transaction_associations [
-                              from_address: [:scam_badge, :names, :smart_contract, proxy_implementations_association()],
-                              to_address: [
-                                :scam_badge,
-                                :names,
-                                :smart_contract,
-                                proxy_implementations_association()
-                              ],
-                              created_contract_address: [
-                                :scam_badge,
-                                :names,
-                                :smart_contract,
-                                proxy_implementations_association()
-                              ]
-                            ] ++
-                              @chain_type_transaction_associations
+  # Address-info associations shared by every participant role of a broadcast
+  # item. Loaded once per broadcast batch by
+  # `Chain.preload_address_participants/4` rather than per role, which repeats
+  # each of these queries once per role.
+  @participant_necessity_by_association %{
+    :scam_badge => :optional,
+    :names => :optional,
+    proxy_implementations_association() => :optional
+  }
+
+  @transaction_address_fields [
+    {:from_address_hash, :from_address},
+    {:to_address_hash, :to_address},
+    {:created_contract_address_hash, :created_contract_address}
+  ]
+
+  @token_transfer_address_fields [
+    {:from_address_hash, :from_address},
+    {:to_address_hash, :to_address}
+  ]
 
   def handle_event({:chain_event, :addresses, type, addresses}) when type in [:realtime, :on_demand] do
+    addresses_count = AddressesCount.fetch()
+
     # TODO: delete duplicated event when old UI becomes deprecated
-    Endpoint.broadcast("addresses_old:new_address", "count", %{count: AddressesCount.fetch()})
-    Endpoint.broadcast("addresses:new_address", "count", %{count: AddressesCount.fetch()})
+    Endpoint.broadcast("addresses_old:new_address", "count", %{count: addresses_count})
+    Endpoint.broadcast("addresses:new_address", "count", %{count: addresses_count})
+
+    exchange_rate = Market.get_coin_exchange_rate()
 
     addresses
     |> Stream.reject(fn %Address{fetched_coin_balance: fetched_coin_balance} -> is_nil(fetched_coin_balance) end)
     |> Stream.filter(fn %Address{hash: hash} -> address_has_subscribers?(hash) end)
-    |> Enum.each(&broadcast_balance/1)
+    |> Enum.each(&broadcast_balance(&1, exchange_rate))
   end
 
   def handle_event({:chain_event, :address_coin_balances, type, address_coin_balances})
       when type in [:realtime, :on_demand] do
+    exchange_rate = Market.get_coin_exchange_rate()
+
     address_coin_balances
     |> Enum.reject(fn balance -> is_nil(balance[:value]) end)
     |> Enum.filter(fn balance -> address_has_subscribers?(balance[:address_hash]) end)
-    |> Enum.each(&broadcast_address_coin_balance/1)
+    # Only the most recent balance of an address is worth a query and a message,
+    # the earlier ones are superseded by it right away.
+    |> Enum.sort_by(& &1[:block_number], :desc)
+    |> Enum.uniq_by(& &1[:address_hash])
+    |> Enum.each(&broadcast_address_coin_balance(&1, exchange_rate))
   end
 
   def handle_event({:chain_event, :address_token_balances, type, address_token_balances})
       when type in [:realtime, :on_demand] do
     address_token_balances
-    |> Enum.filter(fn balance -> address_has_subscribers?(balance[:address_hash]) end)
+    |> Enum.filter(fn balance -> address_has_subscribers?(balance.address_hash) end)
     |> Enum.each(&broadcast_address_token_balance/1)
   end
 
@@ -198,13 +212,10 @@ defmodule BlockScoutWeb.Notifier do
   end
 
   def handle_event({:chain_event, :blocks, :realtime, blocks}) do
-    last_broadcasted_block_number = Helper.fetch_from_ets_cache(:last_broadcasted_block, :number)
-
-    blocks
-    |> Enum.sort_by(& &1.number, :asc)
-    |> Enum.each(fn block ->
-      broadcast_latest_block?(block, last_broadcasted_block_number)
-    end)
+    case Application.get_env(:block_scout_web, __MODULE__)[:block_broadcast_type] do
+      :count -> do_handle_blocks_count(blocks)
+      _ -> do_handle_blocks(blocks)
+    end
   end
 
   def handle_event({:chain_event, :exchange_rate}) do
@@ -297,56 +308,24 @@ defmodule BlockScoutWeb.Notifier do
         |> Repo.preload(
           DenormalizationHelper.extend_transaction_preload([
             [token: Reputation.reputation_association()],
-            :transaction,
-            from_address: [
-              :scam_badge,
-              :names,
-              :smart_contract,
-              proxy_implementations_association()
-            ],
-            to_address: [
-              :scam_badge,
-              :names,
-              :smart_contract,
-              proxy_implementations_association()
-            ]
+            :transaction
           ])
         )
+        |> preload_participants(@token_transfer_address_fields)
         |> Instance.preload_nft(@api_true)
 
-      transfers_by_token =
-        Enum.group_by(all_token_transfers_full, fn tt -> to_string(tt.token_contract_address_hash) end)
+      broadcast_token_transfers_websocket_v2(all_token_transfers_full)
 
-      broadcast_token_transfers_websocket_v2(all_token_transfers_full, transfers_by_token)
-
-      for {_token_contract_address_hash, token_transfers} <- transfers_by_token do
-        token_transfers
-        |> Enum.each(&broadcast_token_transfer/1)
-      end
+      # TODO: delete duplicated event when old UI becomes deprecated
+      broadcast_token_transfers_websocket_v1(all_token_transfers_full)
     end
   end
 
   def handle_event({:chain_event, :transactions, :realtime, transactions}) do
-    base_preloads = [
-      :block,
-      created_contract_address: [:scam_badge, :names, :smart_contract, proxy_implementations_association()],
-      from_address: [:scam_badge, :names, :smart_contract, proxy_implementations_association()],
-      to_address: [:scam_badge, :names, :smart_contract, proxy_implementations_association()]
-    ]
+    broadcast_transactions_websocket_v2(transactions)
 
-    preloads =
-      if API_V2.enabled?(),
-        do: [{:token_transfers, [token: Reputation.reputation_association()]} | base_preloads],
-        else: base_preloads
-
-    transactions
-    |> Repo.preload(preloads)
-    |> broadcast_transactions_websocket_v2()
-    |> Enum.map(fn transaction ->
-      # Disable parsing of token transfers from websocket for transaction tab because we display token transfers at a separate tab
-      Map.put(transaction, :token_transfers, [])
-    end)
-    |> Enum.each(&broadcast_transaction/1)
+    # TODO: delete duplicated event when old UI becomes deprecated
+    broadcast_transactions_websocket_v1(transactions)
   end
 
   def handle_event({:chain_event, :transaction_stats}) do
@@ -428,24 +407,19 @@ defmodule BlockScoutWeb.Notifier do
   end
 
   @current_token_balances_limit 50
-  def handle_event(
-        {:chain_event, :address_current_token_balances, type,
-         %{address_current_token_balances: address_current_token_balances, address_hash: address_hash}}
-      )
+  def handle_event({:chain_event, :address_current_token_balances, type, address_current_token_balances})
       when type in [:realtime, :on_demand] do
-    if address_has_subscribers?(address_hash) do
-      address_current_token_balances
-      |> Repo.preload(token: Reputation.reputation_association())
+    address_current_token_balances
+    |> Enum.filter(&address_has_subscribers?(&1.address_hash))
+    |> Repo.preload(token: Reputation.reputation_association())
+    |> Enum.group_by(& &1.address_hash)
+    |> Enum.each(fn {address_hash, balances} ->
+      balances
       |> Enum.group_by(& &1.token_type)
-      |> Enum.each(fn {token_type, balances} ->
-        broadcast_token_balances(address_hash, token_type, balances)
+      |> Enum.each(fn {token_type, token_type_balances} ->
+        broadcast_token_balances(address_hash, token_type, token_type_balances)
       end)
-    end
-  end
-
-  def handle_event({:chain_event, :address_current_token_balances, :realtime, _empty_balances_params}) do
-    # Don't broadcast empty balances params from realtime block fetcher
-    :ok
+    end)
   end
 
   case @chain_type do
@@ -466,6 +440,24 @@ defmodule BlockScoutWeb.Notifier do
   def handle_event(event) do
     Logger.warning("Unknown broadcasted event #{inspect(event)}.")
     nil
+  end
+
+  defp do_handle_blocks_count(blocks) do
+    blocks
+    |> Enum.group_by(&(&1 |> BlockScoutWeb.BlockView.block_type() |> String.downcase()))
+    |> Enum.each(fn {type, blocks_list} ->
+      Endpoint.broadcast("blocks:new_block", "new_blocks_count", %{count: Enum.count(blocks_list), type: type})
+    end)
+  end
+
+  defp do_handle_blocks(blocks) do
+    last_broadcasted_block_number = Helper.fetch_from_ets_cache(:last_broadcasted_block, :number)
+
+    blocks
+    |> Enum.sort_by(& &1.number, :asc)
+    |> Enum.each(fn block ->
+      broadcast_latest_block?(block, last_broadcasted_block_number)
+    end)
   end
 
   def fetch_compiler_version(compiler) do
@@ -598,7 +590,7 @@ defmodule BlockScoutWeb.Notifier do
     end
   end
 
-  defp broadcast_address_coin_balance(%{address_hash: address_hash, block_number: block_number}) do
+  defp broadcast_address_coin_balance(%{address_hash: address_hash, block_number: block_number}, exchange_rate) do
     coin_balance = CoinBalance.get_coin_balance(address_hash, block_number, @api_true)
 
     if coin_balance && coin_balance.delta && !Decimal.eq?(coin_balance.delta, Decimal.new(0)) do
@@ -618,7 +610,7 @@ defmodule BlockScoutWeb.Notifier do
 
       Endpoint.broadcast("addresses:#{address_hash}", "current_coin_balance", %{
         coin_balance: coin_balance.value,
-        exchange_rate: Market.get_coin_exchange_rate().fiat_value,
+        exchange_rate: exchange_rate.fiat_value,
         block_number: block_number
       })
     end
@@ -635,9 +627,7 @@ defmodule BlockScoutWeb.Notifier do
     })
   end
 
-  defp broadcast_balance(%Address{hash: address_hash} = address) do
-    exchange_rate = Market.get_coin_exchange_rate()
-
+  defp broadcast_balance(%Address{hash: address_hash} = address, exchange_rate) do
     v2_params = %{
       balance: address.fetched_coin_balance.value,
       block_number: address.fetched_coin_balance_block_number,
@@ -770,16 +760,10 @@ defmodule BlockScoutWeb.Notifier do
   end
 
   defp broadcast_transactions_websocket_v2(transactions) do
-    pending_transactions =
-      Enum.filter(transactions, fn
+    {pending_transactions, validated_transactions} =
+      Enum.split_with(transactions, fn
         %Transaction{block_number: nil} -> true
         _ -> false
-      end)
-
-    validated_transactions =
-      Enum.filter(transactions, fn
-        %Transaction{block_number: nil} -> false
-        _ -> true
       end)
 
     broadcast_transactions_websocket_v2_inner(
@@ -789,8 +773,6 @@ defmodule BlockScoutWeb.Notifier do
     )
 
     broadcast_transactions_websocket_v2_inner(validated_transactions, "transactions:new_transaction", "transaction")
-
-    transactions
   end
 
   defp broadcast_transactions_websocket_v2_inner(transactions, default_channel, event) do
@@ -800,17 +782,62 @@ defmodule BlockScoutWeb.Notifier do
       })
     end
 
-    relevant_transactions = Enum.filter(transactions, &transaction_has_subscribers?/1)
+    case Enum.filter(transactions, &transaction_has_subscribers?/1) do
+      [] ->
+        :ok
 
-    prepared_transactions =
-      TransactionView.render("transactions.json", %{
-        transactions: Repo.preload(relevant_transactions, @transaction_associations),
-        conn: nil
-      })
+      relevant_transactions ->
+        prepared_transactions =
+          TransactionView.render("transactions.json", %{
+            transactions:
+              relevant_transactions
+              |> Repo.preload(transaction_broadcast_associations())
+              |> preload_participants(@transaction_address_fields),
+            conn: nil
+          })
 
-    relevant_transactions
-    |> Enum.zip(prepared_transactions)
-    |> group_by_address_hashes_and_broadcast(event, :transactions, & &1["hash"])
+        relevant_transactions
+        |> Enum.zip(prepared_transactions)
+        |> group_by_address_hashes_and_broadcast(event, :transactions, & &1["hash"])
+    end
+  end
+
+  # TODO: delete this function when old UI becomes deprecated
+  defp broadcast_transactions_websocket_v1(transactions) do
+    relevant_transactions =
+      if has_subscribers?("transactions_old:new_transaction") or
+           has_subscribers?("transactions_old:new_pending_transaction") do
+        transactions
+      else
+        Enum.filter(transactions, &transaction_has_old_subscribers?/1)
+      end
+
+    if relevant_transactions != [] do
+      relevant_transactions
+      |> Repo.preload([:block | @chain_type_transaction_associations])
+      |> preload_participants(@transaction_address_fields)
+      |> Enum.map(fn transaction ->
+        Map.put(transaction, :token_transfers, [])
+      end)
+      |> Enum.each(&broadcast_transaction/1)
+    end
+  end
+
+  defp transaction_broadcast_associations do
+    if API_V2.enabled?(),
+      do: [
+        :block,
+        {:token_transfers, [token: Reputation.reputation_association()]} | @chain_type_transaction_associations
+      ],
+      else: [:block | @chain_type_transaction_associations]
+  end
+
+  # Loads the address info of every participant of the broadcast batch in one
+  # pass, deduplicating addresses shared between items and between roles of the
+  # same item. Broadcasts run off the primary repo, as the preloads they replace
+  # did.
+  defp preload_participants(items, address_fields) do
+    Chain.preload_address_participants(items, address_fields, @participant_necessity_by_association, [])
   end
 
   defp broadcast_transaction(%Transaction{block_number: nil} = pending) do
@@ -841,26 +868,40 @@ defmodule BlockScoutWeb.Notifier do
     end
   end
 
-  defp broadcast_token_transfers_websocket_v2(tokens_transfers, transfers_by_token) do
-    for {token_contract_address_hash, token_transfers} <- transfers_by_token do
-      Endpoint.broadcast("tokens:#{token_contract_address_hash}", "token_transfer", %{
-        token_transfer: Enum.count(token_transfers)
-      })
+  defp broadcast_token_transfers_websocket_v2(tokens_transfers) do
+    case Enum.filter(tokens_transfers, &token_transfer_has_v2_subscribers?/1) do
+      [] ->
+        :ok
+
+      relevant_token_transfers ->
+        for {token_contract_address_hash, token_transfers} <-
+              Enum.group_by(relevant_token_transfers, fn tt -> to_string(tt.token_contract_address_hash) end) do
+          Endpoint.broadcast("tokens:#{token_contract_address_hash}", "token_transfer", %{
+            token_transfer: Enum.count(token_transfers)
+          })
+        end
+
+        prepared_token_transfers =
+          TransactionView.render("token_transfers.json", %{
+            token_transfers: relevant_token_transfers,
+            conn: nil
+          })
+
+        relevant_token_transfers
+        |> Enum.zip(prepared_token_transfers)
+        |> group_by_address_hashes_and_broadcast(
+          "token_transfer",
+          :token_transfers,
+          &{&1["transaction_hash"], &1["block_hash"], &1["log_index"]}
+        )
     end
+  end
 
-    prepared_token_transfers =
-      TransactionView.render("token_transfers.json", %{
-        token_transfers: tokens_transfers,
-        conn: nil
-      })
-
+  # TODO: delete this function when old UI becomes deprecated
+  defp broadcast_token_transfers_websocket_v1(tokens_transfers) do
     tokens_transfers
-    |> Enum.zip(prepared_token_transfers)
-    |> group_by_address_hashes_and_broadcast(
-      "token_transfer",
-      :token_transfers,
-      &{&1["transaction_hash"], &1["block_hash"], &1["log_index"]}
-    )
+    |> Enum.filter(&token_transfer_has_old_subscribers?/1)
+    |> Enum.each(&broadcast_token_transfer/1)
   end
 
   defp broadcast_token_transfer(token_transfer) do
@@ -924,30 +965,64 @@ defmodule BlockScoutWeb.Notifier do
   defp address_has_subscribers?(nil), do: false
 
   defp address_has_subscribers?(address_hash) do
-    hash_string = to_string(address_hash)
+    address_has_v2_subscribers?(address_hash) or
+      address_has_old_subscribers?(address_hash)
+  end
 
-    has_subscribers?("addresses:" <> hash_string) or
-      has_subscribers?("addresses_old:" <> hash_string)
+  defp address_has_v2_subscribers?(nil), do: false
+
+  defp address_has_v2_subscribers?(address_hash) do
+    has_subscribers?("addresses:" <> to_string(address_hash))
+  end
+
+  # TODO: delete this function when old UI becomes deprecated
+  defp address_has_old_subscribers?(nil), do: false
+
+  defp address_has_old_subscribers?(address_hash) do
+    has_subscribers?("addresses_old:" <> to_string(address_hash))
   end
 
   defp token_transfer_has_subscribers?(tt) do
-    address_has_subscribers?(tt.from_address_hash) or
-      address_has_subscribers?(tt.to_address_hash) or
-      token_has_subscribers?(tt.token_contract_address_hash)
+    token_transfer_has_v2_subscribers?(tt) or
+      token_transfer_has_old_subscribers?(tt)
   end
 
-  defp token_has_subscribers?(nil), do: false
+  defp token_transfer_has_v2_subscribers?(tt) do
+    address_has_v2_subscribers?(tt.from_address_hash) or
+      address_has_v2_subscribers?(tt.to_address_hash) or
+      token_has_v2_subscribers?(tt.token_contract_address_hash)
+  end
 
-  defp token_has_subscribers?(token_address_hash) do
-    hash_string = to_string(token_address_hash)
+  # TODO: delete this function when old UI becomes deprecated
+  defp token_transfer_has_old_subscribers?(tt) do
+    address_has_old_subscribers?(tt.from_address_hash) or
+      address_has_old_subscribers?(tt.to_address_hash) or
+      token_has_old_subscribers?(tt.token_contract_address_hash)
+  end
 
-    has_subscribers?("tokens:" <> hash_string) or
-      has_subscribers?("tokens_old:" <> hash_string)
+  defp token_has_v2_subscribers?(nil), do: false
+
+  defp token_has_v2_subscribers?(token_address_hash) do
+    has_subscribers?("tokens:" <> to_string(token_address_hash))
+  end
+
+  # TODO: delete this function when old UI becomes deprecated
+  defp token_has_old_subscribers?(nil), do: false
+
+  defp token_has_old_subscribers?(token_address_hash) do
+    has_subscribers?("tokens_old:" <> to_string(token_address_hash))
   end
 
   defp transaction_has_subscribers?(transaction) do
     address_has_subscribers?(transaction.from_address_hash) or
       address_has_subscribers?(transaction.to_address_hash) or
       address_has_subscribers?(transaction.created_contract_address_hash)
+  end
+
+  # TODO: delete this function when old UI becomes deprecated
+  defp transaction_has_old_subscribers?(transaction) do
+    has_subscribers?("transactions_old:" <> to_string(transaction.hash)) or
+      address_has_old_subscribers?(transaction.from_address_hash) or
+      address_has_old_subscribers?(transaction.to_address_hash)
   end
 end

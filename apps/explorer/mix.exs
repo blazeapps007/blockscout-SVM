@@ -21,7 +21,7 @@ defmodule Explorer.Mixfile do
       lockfile: "../../mix.lock",
       package: package(),
       start_permanent: Mix.env() == :prod,
-      version: "11.2.2",
+      version: "11.3.0",
       xref: [exclude: [BlockScoutWeb.Routers.WebRouter.Helpers, Indexer.Helper, Indexer.Fetcher.InternalTransaction]]
     ]
   end
@@ -116,12 +116,12 @@ defmodule Explorer.Mixfile do
       # `Timex.Duration` for `Explorer.Chain.Cache.Counters.AverageBlockTime.average_block_time/0`
       {:timex, "~> 3.7.1"},
       {:con_cache, "~> 1.0"},
-      {:tesla, "~> 1.20.0"},
+      {:tesla, "~> 1.21.0"},
       {:cbor, "~> 1.0"},
       {:cloak_ecto, "~> 1.3.0"},
       {:redix, "~> 1.1"},
       {:hammer_backend_redis, "~> 7.0"},
-      {:typed_ecto_schema, "~> 0.4.1"},
+      {:typed_ecto_schema, "~> 0.5.0"},
       {:ueberauth, "~> 0.7"},
       {:recon, "~> 2.5"},
       {:varint, "~> 1.4"},
@@ -137,6 +137,8 @@ defmodule Explorer.Mixfile do
       {:hammer, "~> 7.0"},
       {:ton, "~> 0.5.0"},
       {:mint, "~> 1.0"},
+      # pooled HTTP client on top of mint, used for microservice requests
+      {:finch, "~> 0.18"},
       {:oban, "~> 2.19"}
     ]
   end

@@ -3,6 +3,7 @@ defmodule BlockScoutWeb.Schemas.API.V2.Transaction.ChainTypeCustomizations do
   @moduledoc false
   alias BlockScoutWeb.API.V2.ZkSyncView
   alias BlockScoutWeb.Schemas.API.V2.{Address, General, Token}
+  alias BlockScoutWeb.Schemas.API.V2.Eden.Call, as: EdenCall
   alias BlockScoutWeb.Schemas.API.V2.Transaction.Fee
   alias BlockScoutWeb.Schemas.Helper
   alias OpenApiSpex.Schema
@@ -198,6 +199,16 @@ defmodule BlockScoutWeb.Schemas.API.V2.Transaction.ChainTypeCustomizations do
 
       :scroll ->
         schema |> Helper.extend_schema(properties: %{scroll: @scroll_schema})
+
+      :eden ->
+        schema
+        |> Helper.extend_schema(
+          properties: %{
+            fee_payer: %Schema{allOf: [Address], nullable: true},
+            calls: %Schema{type: :array, items: EdenCall, nullable: true}
+          },
+          required: [:fee_payer, :calls]
+        )
 
       :suave ->
         schema
@@ -422,7 +433,8 @@ defmodule BlockScoutWeb.Schemas.API.V2.Transaction do
               "token_creation",
               "token_transfer",
               "blob_transaction",
-              "set_code_transaction"
+              "set_code_transaction",
+              "sponsored_transaction"
             ]
           }
         },
