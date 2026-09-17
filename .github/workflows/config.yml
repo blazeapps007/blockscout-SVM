@@ -42,7 +42,6 @@ jobs:
               "arbitrum",
               "arc",
               "blackfort",
-              "eden",
               "ethereum",
               "filecoin",
               "optimism",
