@@ -6,7 +6,9 @@ See AGENTS.md for the API/indexer separate-mode architecture (APPLICATION_MODE, 
 
 ## Repository Overview
 
-Blockscout is an open-source blockchain explorer for EVM chains — an Elixir umbrella project (Elixir ~> 1.19, OTP 27). This repo is a fork of `blockscout/blockscout` (remote `upstream`). Upstream PRs target the `dev` branch with Conventional Commits titles (`feat:`, `fix:`, `chore:`, ...).
+Blockscout is an open-source blockchain explorer for EVM chains — an Elixir umbrella project (Elixir ~> 1.19, OTP 27). Upstream is `blockscout/blockscout`; PRs there target the `dev` branch with Conventional Commits titles (`feat:`, `fix:`, `chore:`, ...).
+
+**This checkout is a deployment fork, not a contribution branch.** `origin` points at `blazeapps007/blockscout-SVM` (no `upstream` remote is configured locally). The `apps/*` Elixir code is untouched upstream code — all fork-specific work so far is docker-compose configuration that stands up a live explorer instance for the "Steem Virtual Machine" (SVM) chain (coin `STEEM`, chain ID 8163) served from `blazeapps.org`/`steemscanner.com` domains. If you're asked to change indexer/API behavior, treat it as a normal upstream-style Elixir change (see conventions below); if the ask is about RPC endpoints, ports, service wiring, or env vars, it's almost certainly in `docker-compose/`.
 
 ## Commands
 
@@ -76,3 +78,11 @@ All runtime configuration is read from environment variables in `config/runtime.
 - **Chain/feature-specific API endpoints**: use the `chain_scope` macro in routers or the `BlockScoutWeb.Plug.CheckFeature` plug — both 404 when disabled.
 - Keep `.dialyzer_ignore.exs` minimal; each suppression needs a comment explaining why it can't be fixed properly.
 - Bug fixes should come as two commits: failing regression test first, then the fix.
+
+## Docker-Compose Deployment (this fork's actual working area)
+
+`docker-compose/` runs the full stack: backend, frontend, Postgres, Redis, and the Rust microservices (stats, smart-contract-verifier, visualizer, sig-provider, user-ops-indexer). Compose files are layered — `docker-compose.yml` is the base; `external-backend.yml`, `external-db.yml`, `external-frontend.yml`, `no-services.yml`, and the node-client files (`geth.yml`, `erigon.yml`, `anvil.yml`, `geth-clique-consensus.yml`, `hardhat-network.yml`) are opt-in overlays combined via `-f`. Per-service env files live in `docker-compose/envs/common-*.env` (`common-blockscout.env` = backend, `common-frontend.env` = UI, plus one per microservice).
+
+- `nft_media_handler` is disabled in this deployment (`NFT_MEDIA_HANDLER_ENABLED=false`) — it was removed from the compose stack after the dets queue crash-looped the indexer with no S3 bucket configured.
+- `ETHEREUM_JSONRPC_HTTP_URL` / `ETHEREUM_JSONRPC_TRACE_URL` and the microservice URLs (`MICROSERVICE_*_URL`) in `common-blockscout.env` are the main knobs when RPC endpoints or backend service addresses move — recent history is almost entirely edits to these two env files plus `nginx.conf_host`/`nginx.conf_evm_rpc`, not app code.
+- After editing an env file, the corresponding container needs a recreate (`docker compose up -d <service>`), not just a restart, for env changes to take effect.

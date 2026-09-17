@@ -47,19 +47,13 @@ services:
       context: ..
       dockerfile: ./docker/Dockerfile
       args:
-        RELEASE_VERSION: 11.2.2
+        RELEASE_VERSION: 11.3.0
     # local fork build — must not be clobbered by upstream pulls
     # (services/backend.yml sets ghcr.io image + pull_policy: always)
-    image: blockscout-svm:11.2.2
+    image: blockscout-svm:11.3.0
     pull_policy: build
     links:
       - db:database
-    environment:
-        # node runs on a separate server; WS (8546) binds loopback there and
-        # is unreachable remotely, so no ETHEREUM_JSONRPC_WS_URL — HTTP polling
-        ETHEREUM_JSONRPC_HTTP_URL: https://evm.steemscanner.com/
-        ETHEREUM_JSONRPC_TRACE_URL: https://evm.steemscanner.com/
-        CHAIN_ID: '8163'
 
   visualizer:
     extends:

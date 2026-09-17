@@ -13,5 +13,5 @@ services:
     env_file:
       -  ../envs/common-blockscout.env
     volumes:
-      - ./logs/:/app/logs/
-      - ./dets/:/app/dets/
+      - ../logs/:/app/logs/
+      - ../dets/:/app/dets/
