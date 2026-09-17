@@ -578,6 +578,14 @@ config :explorer, Explorer.Market.Source.DIA,
   coin_address_hash: System.get_env("MARKET_DIA_COIN_ADDRESS_HASH"),
   secondary_coin_address_hash: System.get_env("MARKET_DIA_SECONDARY_COIN_ADDRESS_HASH")
 
+config :explorer, Explorer.Market.Source.SherpaDex,
+  oracle_address: System.get_env("SHERPA_DEX_ORACLE_ADDRESS"),
+  factory_address: System.get_env("SHERPA_DEX_FACTORY_ADDRESS"),
+  wsteem_address: System.get_env("SHERPA_DEX_WSTEEM_ADDRESS"),
+  susd_address: System.get_env("SHERPA_DEX_SUSD_ADDRESS"),
+  sbd_address: System.get_env("SHERPA_DEX_SBD_ADDRESS"),
+  sherpa_address: System.get_env("SHERPA_DEX_SHERPA_ADDRESS")
+
 config :explorer, Explorer.Market.Fetcher.Coin,
   store: :ets,
   enabled: !disable_exchange_rates? && ConfigHelper.parse_bool_env_var("MARKET_COIN_FETCHER_ENABLED", "true"),
