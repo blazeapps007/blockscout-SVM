@@ -8,7 +8,7 @@ See AGENTS.md for the API/indexer separate-mode architecture (APPLICATION_MODE, 
 
 Blockscout is an open-source blockchain explorer for EVM chains — an Elixir umbrella project (Elixir ~> 1.19, OTP 27). Upstream is `blockscout/blockscout`; PRs there target the `dev` branch with Conventional Commits titles (`feat:`, `fix:`, `chore:`, ...).
 
-**This checkout is a deployment fork, not a contribution branch.** `origin` points at `blazeapps007/blockscout-SVM` (no `upstream` remote is configured locally). The `apps/*` Elixir code is untouched upstream code — all fork-specific work so far is docker-compose configuration that stands up a live explorer instance for the "Steem Virtual Machine" (SVM) chain (coin `STEEM`, chain ID 8163) served from `blazeapps.org`/`steemscanner.com` domains. If you're asked to change indexer/API behavior, treat it as a normal upstream-style Elixir change (see conventions below); if the ask is about RPC endpoints, ports, service wiring, or env vars, it's almost certainly in `docker-compose/`.
+**This checkout is a deployment fork, not a contribution branch.** `origin` points at `blazeapps007/blockscout-SVM` (no `upstream` remote is configured locally). Fork-specific work is mostly docker-compose configuration that stands up a live explorer instance for the "Steem Virtual Machine" (SVM) chain (coin `STEEM`, chain ID 81630, Cosmos SDK + cosmos/evm node; RPC at `evm.steemvmscan.com`, WS at `evm-ws.steemvmscan.com`, explorer UI at `evmscan.steemscanner.com`. The one Elixir addition is `Explorer.Market.Source.SvmOracle` (see the last section); everything else under `apps/*` is untouched upstream code. If you're asked to change indexer/API behavior, treat it as a normal upstream-style Elixir change (see conventions below); if the ask is about RPC endpoints, ports, service wiring, or env vars, it's almost certainly in `docker-compose/`.
 
 ## Commands
 
@@ -86,3 +86,12 @@ All runtime configuration is read from environment variables in `config/runtime.
 - `nft_media_handler` is disabled in this deployment (`NFT_MEDIA_HANDLER_ENABLED=false`) — it was removed from the compose stack after the dets queue crash-looped the indexer with no S3 bucket configured.
 - `ETHEREUM_JSONRPC_HTTP_URL` / `ETHEREUM_JSONRPC_TRACE_URL` and the microservice URLs (`MICROSERVICE_*_URL`) in `common-blockscout.env` are the main knobs when RPC endpoints or backend service addresses move — recent history is almost entirely edits to these two env files plus `nginx.conf_host`/`nginx.conf_evm_rpc`, not app code.
 - After editing an env file, the corresponding container needs a recreate (`docker compose up -d <service>`), not just a restart, for env changes to take effect.
+
+## Fork-Specific Elixir: SvmOracle Market Source
+
+`apps/explorer/lib/explorer/market/source/svm_oracle.ex` is a custom `Explorer.Market.Source` that prices the native coin and the SBD ERC-20 from the chain's `oracledata` precompile (`0x…0902`, `getPrice(string pair)` → `(rate, updateEpoch, updateTime)`, rate is 1e18-scaled USD, all zeros for an unknown pair, ~hourly refresh). Pairs used: `STEEM/USD_External` (native) and `SBD/USD_External` (SBD token at `0x…0901`). Precompile addresses are fixed per chain, so there are no address env vars. It is wired in through existing market config points, not new tables:
+
+- Registered as `"svm_oracle"` in `config/config_helper.exs`.
+- Activated in `common-blockscout.env` via `MARKET_NATIVE_COIN_SOURCE=svm_oracle` and `MARKET_TOKENS_SOURCE=svm_oracle`, with `DISABLE_MARKET=false`. Spot prices only, so `MARKET_HISTORY_FETCHER_ENABLED` must stay `false`.
+- No DEX is deployed on the current chain; the previous `SherpaDex` source (oracle + Uniswap V3 pool pricing) is in git history if one returns.
+- Other SVM precompiles: `0x…0900` steembridge, `0x…0800`–`0807` standard cosmos/evm (staking, bank, gov, ...). Bridge/oracle Cosmos-native messages are not EVM transactions and won't appear in the indexer.

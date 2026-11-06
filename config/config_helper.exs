@@ -300,7 +300,7 @@ defmodule ConfigHelper do
       "defillama" => Source.DefiLlama,
       "dia" => Source.DIA,
       "mobula" => Source.Mobula,
-      "sherpa_dex" => Source.SherpaDex,
+      "svm_oracle" => Source.SvmOracle,
       "" => nil,
       nil => nil
     }
