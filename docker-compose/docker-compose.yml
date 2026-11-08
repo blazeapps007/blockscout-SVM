@@ -92,6 +92,17 @@ services:
     extends:
       file: ./services/smart-contract-verifier.yml
       service: smart-contract-verifier
+    # PINNED. services/smart-contract-verifier.yml defaults the tag to `latest`, and v1.11.0 made
+    # SMART_CONTRACT_VERIFIER__COMPILERS__EXECUTION__TYPE mandatory — so `latest` crash-looped on
+    # a config the env file (and upstream's own copy of it) does not set. A floating tag on a
+    # service that panics at startup on an unset variable is how a working explorer breaks with no
+    # change on our side.
+    image: ghcr.io/blockscout/smart-contract-verifier:v1.11.1
+    # Bounds `COMPILERS__EXECUTION__TYPE=native`, which runs solc in-process with no memory, CPU or
+    # time limits of its own. Verification is unauthenticated, so without these a crafted payload
+    # can take the host down rather than just this container.
+    mem_limit: 4g
+    cpus: 2.0
     volumes:
       # The image's default COMPILERS_DIR is /tmp/solidity-compilers, which is ephemeral. Without
       # a volume every restart re-downloads solc from binaries.soliditylang.org, and until that
