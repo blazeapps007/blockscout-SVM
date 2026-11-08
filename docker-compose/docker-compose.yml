@@ -40,6 +40,13 @@ services:
         condition: service_started
       backend-init:
         condition: service_completed_successfully
+      # Not required to boot — the backend queries the verifier per request, not at startup — but
+      # listed so `docker compose up -d backend` brings it along. Without this, recreating only the
+      # backend after an env change leaves MICROSERVICE_SC_VERIFIER_URL pointing at a container
+      # that was never started, and the symptom is indistinguishable from the misconfiguration it
+      # replaced: an empty compiler list and `Fail - Unable to verify`.
+      sc-verifier:
+        condition: service_started
     extends:
       file: ./services/backend.yml
       service: backend
