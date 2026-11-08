@@ -65,6 +65,33 @@ services:
       file: ./services/sig-provider.yml
       service: sig-provider
 
+  # Source verification. This service was MISSING from this file: `microservices.yml` was
+  # flattened into the base compose, but `sc-verifier` was dropped, so the stack ran with no
+  # verifier at all. The backend then fell back to its hardcoded default URL,
+  # https://eth-bytecode-db.services.blockscout.com, which is Blockscout's PUBLIC CROSS-CHAIN
+  # bytecode->source database rather than a compiler. Two consequences, both observed on 81630:
+  #
+  #   1. /api/v2/smart-contracts/verification/config reported
+  #      "solidity_compiler_versions": [] — nothing can be verified, and every submission fails
+  #      with the unhelpful `Fail - Unable to verify`.
+  #   2. Contracts got labelled with OTHER PROJECTS' names. A Uniswap V3 fork built with
+  #      metadata.bytecodeHash: 'none' has no project-unique bytes, so it matches any other
+  #      renamed fork already in that global DB. Our V3 factory displayed as `UpheavalV3Factory`.
+  #      That is eth-bytecode-db working as designed on metadata-stripped bytecode, not a bug.
+  #
+  # The local verifier compiles the source that was actually submitted, so it fixes both.
+  # No host port is published: only the backend talks to it, over the compose network.
+  sc-verifier:
+    extends:
+      file: ./services/smart-contract-verifier.yml
+      service: smart-contract-verifier
+    volumes:
+      # The image's default COMPILERS_DIR is /tmp/solidity-compilers, which is ephemeral. Without
+      # a volume every restart re-downloads solc from binaries.soliditylang.org, and until that
+      # finishes the compiler list is empty again — i.e. the exact failure above, intermittently.
+      - solc-compilers:/tmp/solidity-compilers
+      - vyper-compilers:/tmp/vyper-compilers
+
   frontend:
     depends_on:
       - backend
@@ -109,3 +136,9 @@ services:
     extends:
       file: ./services/nginx.yml
       service: proxy
+
+volumes:
+  # Downloaded solc/vyper binaries. Persisting them keeps the compiler list populated across
+  # restarts instead of leaving a window where verification silently fails.
+  solc-compilers:
+  vyper-compilers:
