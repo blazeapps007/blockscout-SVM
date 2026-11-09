@@ -103,12 +103,22 @@ services:
     # can take the host down rather than just this container.
     mem_limit: 4g
     cpus: 2.0
-    volumes:
-      # The image's default COMPILERS_DIR is /tmp/solidity-compilers, which is ephemeral. Without
-      # a volume every restart re-downloads solc from binaries.soliditylang.org, and until that
-      # finishes the compiler list is empty again — i.e. the exact failure above, intermittently.
-      - solc-compilers:/tmp/solidity-compilers
-      - vyper-compilers:/tmp/vyper-compilers
+    # DO NOT mount a volume over /tmp/solidity-compilers. Doing so BREAKS verification: Docker
+    # creates a named volume owned by root:root, this image runs as the unprivileged user `app`,
+    # and the compiler installer then cannot write the solc binary it has just fetched —
+    #
+    #   compiler_cache: installing file version v0.8.10+commit.fc410830
+    #   ERROR ... context: "fetching evm compiler",
+    #           source: File(Os { code: 13, kind: PermissionDenied })
+    #
+    # — which Blockscout surfaces as the same generic `Fail - Unable to verify`, indistinguishable
+    # from every other failure in this chain of problems. Unmounted, the directory is created by
+    # the process itself in the container's writable layer with the right ownership.
+    #
+    # Nothing is lost. The compiler LIST is fetched over the network at startup either way; only
+    # the binaries would be cached, they download lazily in roughly 350ms, and this chain needs
+    # exactly two (0.8.10 and 0.7.6). Re-adding a volume here requires an init container to chown
+    # it to `app` first — see backend-init, which exists for that same reason.
 
   frontend:
     depends_on:
@@ -155,8 +165,3 @@ services:
       file: ./services/nginx.yml
       service: proxy
 
-volumes:
-  # Downloaded solc/vyper binaries. Persisting them keeps the compiler list populated across
-  # restarts instead of leaving a window where verification silently fails.
-  solc-compilers:
-  vyper-compilers:
