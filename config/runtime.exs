@@ -281,6 +281,10 @@ config :block_scout_web, BlockScoutWeb.Chain.Address.CoinBalance,
 config :block_scout_web, BlockScoutWeb.API.V2,
   enabled: ConfigHelper.parse_bool_env_var("API_V2_ENABLED", "true")
 
+config :block_scout_web, BlockScoutWeb.API.RPC.AddressController,
+  internal_transactions_pending_head_tolerance:
+    ConfigHelper.parse_integer_env_var("API_INTERNAL_TRANSACTIONS_PENDING_HEAD_TOLERANCE", 200, min: 0)
+
 config :block_scout_web, BlockScoutWeb.MicroserviceInterfaces.TransactionInterpretation,
   service_url: ConfigHelper.parse_url_env_var("MICROSERVICE_TRANSACTION_INTERPRETATION_URL"),
   enabled: ConfigHelper.parse_bool_env_var("MICROSERVICE_TRANSACTION_INTERPRETATION_ENABLED")
@@ -465,7 +469,8 @@ config :explorer, Explorer.Chain.Cache.Counters.AddressesCount,
     ConfigHelper.parse_time_env_var("CACHE_ADDRESS_COUNT_PERIOD", "30m")
 
 config :explorer, Explorer.Chain.Cache.Counters.TransactionsCount,
-  global_ttl: ConfigHelper.parse_time_env_var("CACHE_TXS_COUNT_PERIOD", "2h")
+  global_ttl: ConfigHelper.parse_time_env_var("CACHE_TXS_COUNT_PERIOD", "2h"),
+  enable_consolidation: !ConfigHelper.parse_bool_env_var("CACHE_TXS_COUNT_CONSOLIDATION_DISABLED")
 
 config :explorer, Explorer.Chain.Cache.Counters.PendingBlockOperationCount,
   global_ttl: ConfigHelper.parse_time_env_var("CACHE_PENDING_OPERATIONS_COUNT_PERIOD", "5m")
@@ -816,9 +821,20 @@ config :explorer, Explorer.Chain.Cache.Transactions,
   ttl_check_interval: false,
   global_ttl: nil
 
+# API nodes are not told about balance changes, so their entries expire on a TTL;
+# the refresher below rewrites them every interval, which renews the TTL, so
+# the cache only expires when refreshes have been failing for the whole TTL.
 config :explorer, Explorer.Chain.Cache.Accounts,
   ttl_check_interval: ConfigHelper.cache_ttl_check_interval(disable_indexer?),
-  global_ttl: ConfigHelper.cache_global_ttl(disable_indexer?)
+  global_ttl: ConfigHelper.cache_global_ttl(disable_indexer?, "CACHE_TOP_ADDRESSES_TTL", "5m")
+
+top_addresses_update_interval = ConfigHelper.parse_time_env_var("CACHE_TOP_ADDRESSES_UPDATE_INTERVAL", "1m")
+
+if top_addresses_update_interval <= 0 do
+  raise "CACHE_TOP_ADDRESSES_UPDATE_INTERVAL must be a positive duration"
+end
+
+config :explorer, Explorer.Chain.Cache.Accounts.Refresher, update_interval: top_addresses_update_interval
 
 config :explorer, Explorer.Chain.Cache.Uncles,
   ttl_check_interval: false,
@@ -1098,6 +1114,13 @@ config :explorer, Explorer.Migrator.ReindexBlocksWithUncatalogedTokenTransfers,
       "0s"
     )
 
+config :explorer, Explorer.Migrator.ReindexBlocksWithStaleInternalTransactions,
+  batch_size:
+    ConfigHelper.parse_integer_env_var("MIGRATION_REINDEX_BLOCKS_WITH_STALE_INTERNAL_TRANSACTIONS_BATCH_SIZE", 1000),
+  concurrency:
+    ConfigHelper.parse_integer_env_var("MIGRATION_REINDEX_BLOCKS_WITH_STALE_INTERNAL_TRANSACTIONS_CONCURRENCY", 1),
+  timeout: ConfigHelper.parse_time_env_var("MIGRATION_REINDEX_BLOCKS_WITH_STALE_INTERNAL_TRANSACTIONS_TIMEOUT", "0s")
+
 config :explorer, Explorer.Migrator.RestoreOmittedWETHTransfers,
   concurrency:
     ConfigHelper.parse_integer_env_var(
@@ -1347,6 +1370,8 @@ config :explorer, Explorer.Chain.Cache.ScamAddresses,
   enabled: ConfigHelper.parse_bool_env_var("HIDE_SCAM_ADDRESSES"),
   update_interval: ConfigHelper.parse_time_env_var("CACHE_SCAM_ADDRESSES_UPDATE_INTERVAL", "5m"),
   max_size: ConfigHelper.parse_integer_env_var("CACHE_SCAM_ADDRESSES_MAX_SIZE", 200_000, min: 0)
+
+config :explorer, Explorer.Chain.Cache.AddressTags, ttl: ConfigHelper.parse_time_env_var("CACHE_ADDRESS_TAGS_TTL", "5m")
 
 rate_limiter_redis_url = ConfigHelper.parse_url_env_var("RATE_LIMITER_REDIS_URL")
 
@@ -1617,6 +1642,13 @@ config :indexer, Indexer.Fetcher.OnDemand.TokenBalance,
 config :indexer, Indexer.Fetcher.OnDemand.TokenBalance.Supervisor,
   disabled?: ConfigHelper.parse_bool_env_var("INDEXER_DISABLE_TOKEN_BALANCE_ON_DEMAND_FETCHER")
 
+config :indexer, Indexer.Fetcher.OnDemand.TokenTotalSupply,
+  max_concurrency: ConfigHelper.parse_integer_env_var("TOKEN_TOTAL_SUPPLY_ON_DEMAND_FETCHER_CONCURRENCY", 5, min: 1),
+  threshold: ConfigHelper.parse_time_env_var("TOKEN_TOTAL_SUPPLY_ON_DEMAND_FETCHER_THRESHOLD", "5m")
+
+config :indexer, Indexer.Fetcher.OnDemand.TokenTotalSupply.Supervisor,
+  disabled?: ConfigHelper.parse_bool_env_var("INDEXER_DISABLE_TOKEN_TOTAL_SUPPLY_ON_DEMAND_FETCHER")
+
 config :indexer, Indexer.Fetcher.OnDemand.CoinBalance,
   threshold: ConfigHelper.parse_time_env_var("COIN_BALANCE_ON_DEMAND_FETCHER_THRESHOLD", "1h"),
   fallback_threshold_in_blocks: 500
@@ -1839,6 +1871,7 @@ config :indexer, Indexer.Fetcher.TokenInstance.SanitizeERC721,
 config :indexer, Indexer.Fetcher.InternalTransaction,
   batch_size: ConfigHelper.parse_integer_env_var("INDEXER_INTERNAL_TRANSACTIONS_BATCH_SIZE", 10),
   concurrency: ConfigHelper.parse_integer_env_var("INDEXER_INTERNAL_TRANSACTIONS_CONCURRENCY", 4),
+  import_timeout: ConfigHelper.parse_time_env_var("INDEXER_INTERNAL_TRANSACTIONS_IMPORT_TIMEOUT", "4m", min: 0),
   indexing_finished_threshold:
     ConfigHelper.parse_integer_env_var(
       "API_INTERNAL_TRANSACTIONS_INDEXING_FINISHED_THRESHOLD",

@@ -25,6 +25,10 @@ config :explorer, Explorer.Chain.Cache.BlockNumber, enabled: true
 
 config :explorer, Explorer.Chain.Cache.ContractMethods, enabled: true
 
+config :explorer, Explorer.Chain.Cache.AddressTags, enabled: true
+
+config :explorer, Explorer.Chain.Cache.Accounts.Refresher, enabled: true
+
 config :explorer, Explorer.Chain.Cache.Counters.AddressesCoinBalanceSum,
   enabled: true,
   ttl_check_interval: :timer.seconds(1)
@@ -36,6 +40,8 @@ config :explorer, Explorer.Chain.Cache.Counters.AddressesCoinBalanceSumMinusBurn
 config :explorer, Explorer.Chain.Cache.Counters.AddressesCount,
   enabled: true,
   enable_consolidation: true
+
+config :explorer, Explorer.Chain.Cache.Counters.TransactionsCount, enable_consolidation: true
 
 config :explorer, Explorer.Chain.Cache.Counters.AddressCounters, enabled: true
 
@@ -133,6 +139,7 @@ for migrator <- [
       Explorer.Migrator.UnescapeAmpersandsInTokens,
       Explorer.Migrator.SanitizeDuplicateSmartContractAdditionalSources,
       Explorer.Migrator.ReindexBlocksWithUncatalogedTokenTransfers,
+      Explorer.Migrator.ReindexBlocksWithStaleInternalTransactions,
       Explorer.Migrator.EmptyInternalTransactionsData,
       Explorer.Migrator.FillInternalTransactionsAddressIds,
       Explorer.Migrator.BackfillAddressCounters,

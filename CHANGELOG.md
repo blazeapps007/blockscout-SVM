@@ -1,5 +1,91 @@
 # Changelog
 
+
+## 11.3.3
+
+### 🐛 Bug Fixes
+
+- Fix internal transactions fetcher test on zksync chain type ([#14894](https://github.com/blockscout/blockscout/issues/14894))
+- Export only supplied coin balances to the multichain balances queue ([#14885](https://github.com/blockscout/blockscout/issues/14885))
+- Stop internal transactions import from upserting existing addresses ([#14890](https://github.com/blockscout/blockscout/issues/14890))
+- Missing blocks clearing on failed import ([#14888](https://github.com/blockscout/blockscout/issues/14888))
+- Exclude non-traceable blocks from coin balance catchup init query ([#14889](https://github.com/blockscout/blockscout/issues/14889))
+- ReindexBlocksWithStaleInternalTransactions migration ([#14884](https://github.com/blockscout/blockscout/issues/14884))
+- Do not move the beacon deposit fetcher cursor forward on reorgs ([#14883](https://github.com/blockscout/blockscout/issues/14883))
+- Handle null nonce/mixHash returned by Nethermind for AuRa blocks ([#14880](https://github.com/blockscout/blockscout/issues/14880))
+- Handle multi-id historical transfers when reverting token instance owner on reorg ([#14879](https://github.com/blockscout/blockscout/issues/14879))
+- Apply a finite timeout to the internal transactions import ([#14864](https://github.com/blockscout/blockscout/issues/14864))
+- Tolerate pending internal transactions at chain head in txlistinternal ([#14866](https://github.com/blockscout/blockscout/issues/14866))
+- Recognize null round errors with epoch suffix in catchup fetcher for Filecoin ([#14859](https://github.com/blockscout/blockscout/issues/14859))
+- Bound pending operations PTO->PBO migration batches by transaction_hash ([#14856](https://github.com/blockscout/blockscout/issues/14856))
+
+### ⚙️ Miscellaneous Tasks
+
+- Add env var to disable transactions count consolidation ([#14877](https://github.com/blockscout/blockscout/issues/14877))
+
+### New ENV variables
+
+| Variable                                            | Description                                                                                                                                                                                     | Parameters                                                          |
+|-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|
+| `API_INTERNAL_TRANSACTIONS_PENDING_HEAD_TOLERANCE`      | Number of most recent blocks whose internal transactions may still be pending without API endpoints returning internal transactions marking the response as pending (`status: "2"`), for requests whose range reaches the chain head (no `endblock`, or `endblock` at or above the latest block). Requests with `endblock` below the head, empty results, and requests by `txhash` keep the strict check. Set to `0` to disable the tolerance. Implemented in [#14866](https://github.com/blockscout/blockscout/pull/14866). | Version: v11.3.3\+ <br />Default: `200` <br />Applications: API                                                                                                                                                                                                                                                                                                                 |
+| `INDEXER_INTERNAL_TRANSACTIONS_IMPORT_TIMEOUT`                | DB transaction timeout for internal transactions import. [Time format](/setup/env-variables/backend-env-variables#time-format). Set to `0` to disable the timeout. Implemented in [#14864](https://github.com/blockscout/blockscout/pull/14864).                                                                                                                                                                                                                                                                                 | Version: v11.3.3\+ <br />Default: `4m` <br />Applications: Indexer                                       |
+| `MIGRATION_REINDEX_BLOCKS_WITH_STALE_INTERNAL_TRANSACTIONS_BATCH_SIZE`     | Number of blocks to reindex in the batch. Implemented in [#14884](https://github.com/blockscout/blockscout/pull/14884).                                                                                                                                                                                                                 | Version: v11.3.3\+ <br />Default: `1000` <br />Applications: Indexer          |
+| `MIGRATION_REINDEX_BLOCKS_WITH_STALE_INTERNAL_TRANSACTIONS_CONCURRENCY`     | Number of parallel reindexing block batches processing. Implemented in [#14884](https://github.com/blockscout/blockscout/pull/14884).                                                                                                                                                                                                                 | Version: v11.3.3\+ <br />Default: `1` <br />Applications: Indexer          |
+| `MIGRATION_REINDEX_BLOCKS_WITH_STALE_INTERNAL_TRANSACTIONS_TIMEOUT`     | Timeout between reindexing block batches processing. Implemented in [#14884](https://github.com/blockscout/blockscout/pull/14884).                                                                                                                                                                                                              | Version: v11.3.3\+ <br />Default: `0s` <br />Applications: Indexer          |
+| `CACHE_TXS_COUNT_CONSOLIDATION_DISABLED`                      | If `true`, disables exact total transaction count consolidation and uses the PostgreSQL `pg_class` estimate directly. Implemented in [#14877](https://github.com/blockscout/blockscout/pull/14877).                                                                                                                                                                                     | Version: v11.3.3\+ <br />Default: `false` <br />Applications: API         |
+
+
+## 11.3.2
+
+### 🐛 Bug Fixes
+
+- Increase beacon RPC client response timeout to 30s ([#14840](https://github.com/blockscout/blockscout/issues/14840))
+- Dedupe multichain export queue rows to avoid cardinality violation ([#14839](https://github.com/blockscout/blockscout/issues/14839))
+- Tolerate non-string NFT metadata values in NFTHelper ([#14838](https://github.com/blockscout/blockscout/issues/14838))
+- Move counters_corrections after ctb deriving ([#14837](https://github.com/blockscout/blockscout/issues/14837))
+
+### ⚡ Performance
+
+- Batch chain-specific lookups in realtime block broadcast ([#14849](https://github.com/blockscout/blockscout/issues/14849))
+- Refill top addresses cache in the background on API nodes ([#14843](https://github.com/blockscout/blockscout/issues/14843))
+- Preload data for realtime block events by batch ([#14842](https://github.com/blockscout/blockscout/issues/14842))
+
+### New ENV variables
+
+| Variable                                            | Description                                                                                                                                                                                     | Parameters                                                          |
+|-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|
+| `CACHE_TOP_ADDRESSES_TTL`                                      | TTL of the top addresses cache (`/api/v2/addresses` first page) on API nodes (`APPLICATION_MODE=api` or `DISABLE_INDEXER=true`). The background refresher renews it on every refill, so the cache only expires when refills have been failing for the whole TTL. [Time format](/setup/env-variables/backend-env-variables#time-format). | Version: v11.3.2\+ <br />Default: `5m` <br />Applications: API             |
+| `CACHE_TOP_ADDRESSES_UPDATE_INTERVAL`                          | Interval at which `Explorer.Chain.Cache.Accounts.Refresher` refills the top addresses cache from the database. Should be lower than `CACHE_TOP_ADDRESSES_TTL`. [Time format](/setup/env-variables/backend-env-variables#time-format). | Version: v11.3.2\+ <br />Default: `1m` <br />Applications: API             |
+
+
+## 11.3.1
+
+### 🚀 Features
+
+- Support OP Stack Upgrade 20 (Super Root games, SystemConfig v4) ([#14818](https://github.com/blockscout/blockscout/issues/14818))
+
+### 📚 Documentation
+
+- Document OP Stack transaction types in Transaction schema ([#14835](https://github.com/blockscout/blockscout/issues/14835))
+
+### ⚡ Performance
+
+- Cache public address tags and index-driven tags lookup ([#14833](https://github.com/blockscout/blockscout/issues/14833))
+- Bound and deduplicate on-demand token total supply fetcher ([#14811](https://github.com/blockscout/blockscout/issues/14811))
+- Preload signed_authorizations only for EIP-7702 transactions ([#14828](https://github.com/blockscout/blockscout/issues/14828))
+- Reuse preloaded proxy and ABI associations in input decoding ([#14827](https://github.com/blockscout/blockscout/issues/14827))
+- Use Endpoint.local_broadcast instead of Endpoint.broadcast ([#14819](https://github.com/blockscout/blockscout/issues/14819))
+- Optimize realtime events broadcast for legacy topics ([#14810](https://github.com/blockscout/blockscout/issues/14810))
+
+### New ENV variables
+
+| Variable                                            | Description                                                                                                                                                                                     | Parameters                                                          |
+|-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|
+| `INDEXER_DISABLE_TOKEN_TOTAL_SUPPLY_ON_DEMAND_FETCHER`        | If `true`, `Indexer.Fetcher.OnDemand.TokenTotalSupply` fetcher is disabled at runtime. Implemented in [#14811](https://github.com/blockscout/blockscout/pull/14811).                                                                                                                                                                                                                                                                                                                                                             | Version: v11.3.1\+ <br />Default: `false` <br />Applications: Indexer                                        |
+| `TOKEN_TOTAL_SUPPLY_ON_DEMAND_FETCHER_CONCURRENCY`             | Concurrency for `Indexer.Fetcher.OnDemand.TokenTotalSupply`. Implemented in [#14811](https://github.com/blockscout/blockscout/pull/14811).                                                                                                                                                                                                                                             | Version: v11.3.1\+ <br />Default: `5` <br />Applications: Indexer         |
+| `TOKEN_TOTAL_SUPPLY_ON_DEMAND_FETCHER_THRESHOLD`               | Backoff threshold after a failed token total supply fetch. [Time format](/setup/env-variables/backend-env-variables#time-format). Implemented in [#14811](https://github.com/blockscout/blockscout/pull/14811).                                                                                                                                                                        | Version: v11.3.1\+ <br />Default: `5m` <br />Applications: Indexer        |
+
+
 ## 11.3.0
 
 ### 🚀 Features
