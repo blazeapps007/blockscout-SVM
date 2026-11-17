@@ -44,7 +44,12 @@ services:
       - 'host.docker.internal:host-gateway'
     env_file:
       -  ../envs/common-stats.env
+    volumes:
+      # copy of the image's charts.json with template_values.native_coin_symbol set to STEEM
+      # (the image default is ETH, which leaks into chart titles/units and the counters)
+      - ../stats-config/charts.json:/app/config/custom/charts.json:ro
     environment:
+      - STATS__CHARTS_CONFIG=/app/config/custom/charts.json
       - STATS__DB_URL=${STATS__DB_URL:-postgres://stats:n0uejXPl61ci6ldCuE2gQU5Y@stats-db:5432/stats}
       - STATS__BLOCKSCOUT_DB_URL=${STATS__BLOCKSCOUT_DB_URL:-postgresql://blockscout:ceWb1MeLBEeOIfk65gU8EjF8@db:5432/blockscout}
       - STATS__CREATE_DATABASE=${STATS__CREATE_DATABASE:-true}
