@@ -91,7 +91,7 @@ All runtime configuration is read from environment variables in `config/runtime.
 
 `apps/explorer/lib/explorer/market/source/svm_oracle.ex` is a custom `Explorer.Market.Source` that prices the native coin and the SBD ERC-20 from the chain's `oracledata` precompile (`0x…0902`, `getPrice(string pair)` → `(rate, updateEpoch, updateTime)`, rate is 1e18-scaled USD, all zeros for an unknown pair, ~hourly refresh). Pairs used: `STEEM/USD_External` (native) and `SBD/USD_External` (SBD token at `0x…0901`). Precompile addresses are fixed per chain, so there are no address env vars. It is wired in through existing market config points, not new tables:
 
-- Registered as `"svm_oracle"` in `config/config_helper.exs`.
+- Registered as `"svm_oracle"` in `config/config_helper.exs`. wSTEEM (deployed WETH9-style wrapper, so its address is chain-specific) is priced at the `STEEM/USD_External` rate; its address comes from `SVM_ORACLE_WSTEEM_ADDRESS` (unset = skipped).
 - Activated in `common-blockscout.env` via `MARKET_NATIVE_COIN_SOURCE=svm_oracle` and `MARKET_TOKENS_SOURCE=svm_oracle`, with `DISABLE_MARKET=false`. Spot prices only, so `MARKET_HISTORY_FETCHER_ENABLED` must stay `false`.
 - No DEX is deployed on the current chain; the previous `SherpaDex` source (oracle + Uniswap V3 pool pricing) is in git history if one returns.
 - Other SVM precompiles: `0x…0900` steembridge, `0x…0800`–`0807` standard cosmos/evm (staking, bank, gov, ...). Bridge/oracle Cosmos-native messages are not EVM transactions and won't appear in the indexer.

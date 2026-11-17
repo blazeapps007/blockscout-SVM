@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: LicenseRef-Blockscout
 defmodule Explorer.Market.Source.SvmOracle do
   @moduledoc """
-  Prices the native coin (STEEM) and the SBD ERC-20 straight from the Steem
+  Prices the native coin (STEEM), the SBD ERC-20 and wSTEEM (the 1:1 wrapped
+  native coin, address from `SVM_ORACLE_WSTEEM_ADDRESS`) straight from the Steem
   Virtual Machine `oracledata` precompile.
 
   The precompile lives at a fixed address on every SVM chain and exposes
@@ -67,12 +68,22 @@ defmodule Explorer.Market.Source.SvmOracle do
 
   @impl Source
   def fetch_tokens(state, _batch_size) do
-    with {:ok, price} <- oracle_price(@sbd_pair),
-         {:ok, hash} <- Hash.Address.cast(@sbd_token) do
-      {:ok, state, true, [%{contract_address_hash: hash, fiat_value: price, type: "ERC-20"}]}
-    else
-      {:error, reason} -> {:error, reason}
-      _ -> {:error, "invalid SBD token address"}
+    # wSTEEM is a 1:1 wrapper of the native coin, so it shares the STEEM/USD price.
+    results = [
+      {@sbd_token, oracle_price(@sbd_pair)},
+      {wsteem_address(), oracle_price(@native_pair)}
+    ]
+
+    token_params =
+      for {address, {:ok, price}} <- results,
+          not is_nil(address),
+          {:ok, hash} <- [Hash.Address.cast(address)] do
+        %{contract_address_hash: hash, fiat_value: price, type: "ERC-20"}
+      end
+
+    case {token_params, Enum.find(results, &match?({_, {:error, _}}, &1))} do
+      {[], {_, {:error, reason}}} -> {:error, reason}
+      _ -> {:ok, state, true, token_params}
     end
   end
 
@@ -115,6 +126,13 @@ defmodule Explorer.Market.Source.SvmOracle do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp wsteem_address do
+    case Application.get_env(:explorer, __MODULE__, [])[:wsteem_address] do
+      address when is_binary(address) and address != "" -> address
+      _ -> nil
     end
   end
 
